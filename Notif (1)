@@ -1,0 +1,689 @@
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local HttpService = game:GetService("HttpService")
+local TeleportService = game:GetService("TeleportService")
+local workspace = workspace
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1441062150880891010/oXdFqednQHdke74hQtRPmlQ8BQqRs8A3dmL54FxI-4QMJRUIi31ptjqgLeVPlS5uaEs-"
+local PLOTS_NAME = "Plots"
+local HOP_DELAY_SECONDS = 5
+local MAX_SERVER_PAGES = 10 -- Aumentado levemente para garantir candidatos
+local MAX_PLAYERS_DISPLAY = 8
+local SHOW_ESP = true
+local MIN_GENERATION = 10000000 
+
+local function ciReplace(str, target, repl)
+    if not str or not target or repl == nil then return str end
+    local pat = ""
+    for i = 1, #target do
+        local c = target:sub(i,i)
+        pat = pat .. "[" .. string.lower(c) .. string.upper(c) .. "]"
+    end
+    return (string.gsub(str, pat, repl))
+end
+
+local function doHttpRequest(opts)
+    opts = opts or {}
+    local url = opts.Url
+    local method = opts.Method or "GET"
+    local headers = opts.Headers or {}
+    local body = opts.Body
+    local timeout = opts.Timeout or 10
+    local function normalize(res)
+        if type(res) ~= "table" then
+            return { Success = false, StatusCode = 0, Body = tostring(res) }
+        end
+        return {
+            Success = res.Success or nil,
+            StatusCode = res.StatusCode or res.status or res.statusCode or 0,
+            Body = res.Body or res.body or (res.response and res.response.Body) or ""
+        }
+    end
+    
+    if syn and syn.request then
+        local ok, res = pcall(function()
+            return syn.request({ Url = url, Method = method, Headers = headers, Body = body, Timeout = timeout })
+        end)
+        if ok and res then return true, normalize(res) end
+    end
+    if http and http.request then
+        local ok, res = pcall(function()
+            return http.request({ Url = url, Method = method, Headers = headers, Body = body })
+        end)
+        if ok and res then return true, normalize(res) end
+    end
+    if type(http_request) == "function" then
+        local ok, res = pcall(function() return http_request({ Url = url, Method = method, Headers = headers, Body = body }) end)
+        if ok and res then return true, normalize(res) end
+    end
+    if type(request) == "function" then
+        local ok, res = pcall(function() return request({ Url = url, Method = method, Headers = headers, Body = body }) end)
+        if ok and res then return true, normalize(res) end
+    end
+    if HttpService and HttpService.PostAsync then
+        local okPost, result = pcall(function()
+            return HttpService:PostAsync(url, body or "", Enum.HttpContentType.ApplicationJson, false)
+        end)
+        if okPost then
+            return true, { Success = true, StatusCode = 200, Body = result }
+        else
+            return false, { Success = false, StatusCode = 0, Body = tostring(result) }
+        end
+    end
+    return false, { Success = false, StatusCode = 0, Body = "no-http-method-available" }
+end
+
+local function parseSuffixNumber(str)
+    if not str or type(str) ~= "string" then return nil end
+    local s = string.gsub(str, "%s+", ""):lower()
+    s = string.gsub(s, ",", "")
+    s = string.gsub(s, "%+", "")
+    if string.sub(s,1,1) == "$" then s = string.sub(s,2) end
+    s = string.gsub(s, "/.*$", "")
+    s = string.gsub(s, "[^%w%.]+$", "")
+    local numPart, suffix = string.match(s, "^([%d%.]+)([kmgtbq]?)")
+    if not numPart then return nil end
+    local n = tonumber(numPart)
+    if not n then return nil end
+    local multipliers = { k = 1e3, m = 1e6, b = 1e9, t = 1e12, q = 1e15 }
+    local mul = 1
+    if suffix and suffix ~= "" then mul = multipliers[suffix] or 1 end
+    return n * mul
+end
+
+local function findDescendantByNameCI(root, name)
+    if not root or not name then return nil end
+    if string.lower(root.Name) == string.lower(name) then return root end
+    for _, child in ipairs(root:GetChildren()) do
+        local found = findDescendantByNameCI(child, name)
+        if found then return found end
+    end
+    return nil
+end
+
+local function getTextFromInstance(inst)
+    if not inst then return nil end
+    local txt
+    if inst:IsA("TextLabel") or inst:IsA("TextButton") or inst:IsA("TextBox") then txt = inst.Text end
+    if (not txt) and inst:IsA("ValueBase") then
+        local v = inst.Value
+        if v ~= nil then txt = tostring(v) end
+    end
+    if not txt then
+        local ok, generic = pcall(function() return inst.Text end)
+        if ok and generic then txt = generic end
+    end
+    if not txt then
+        local ok2, generic2 = pcall(function() return inst.Value end)
+        if ok2 and generic2 then txt = tostring(generic2) end
+    end
+    if not txt then return nil end
+    txt = tostring(txt)
+    txt = string.gsub(txt, "^%s+", "")
+    txt = string.gsub(txt, "%s+$", "")
+    return txt
+end
+
+local function findBasePartForPodium(podium)
+    if not podium then return nil end
+    local base = findDescendantByNameCI(podium, "Base")
+    if base and base:IsA("BasePart") then return base end
+    if base then
+        for _, d in ipairs(base:GetDescendants()) do
+            if d:IsA("BasePart") then return d end
+        end
+    end
+    for _, d in ipairs(podium:GetDescendants()) do
+        if d:IsA("BasePart") then return d end
+    end
+    return nil
+end
+
+local function clearESP()
+    if not SHOW_ESP then return end
+    for _, desc in ipairs(playerGui:GetDescendants()) do
+        if desc:IsA("Highlight") or desc:IsA("ScreenGui") then
+            if desc.Name == "BestPlotESP_Highlight" or desc.Name == "BestPlotESP_BillboardContainer" then
+                desc:Destroy()
+            end
+        end
+    end
+    for _, desc in ipairs(workspace:GetDescendants()) do
+        if desc:IsA("Highlight") and desc.Name == "BestPlotESP_Highlight" then desc:Destroy() end
+    end
+end
+
+local function createHighlightForTarget(target)
+    if not SHOW_ESP then return end
+    if not target then return end
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "BestPlotESP_Highlight"
+    highlight.Adornee = target
+    highlight.FillColor = Color3.fromRGB(0, 200, 150)
+    highlight.FillTransparency = 0.6
+    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+    highlight.OutlineTransparency = 0
+    highlight.Parent = playerGui
+    return highlight
+end
+
+local function createBillboardForPart(adorneePart, displayText)
+    if not SHOW_ESP then return end
+    if not adorneePart or not adorneePart:IsA("BasePart") then return end
+    local container = playerGui:FindFirstChild("BestPlotESP_BillboardContainer")
+    if not container then
+        local sg = Instance.new("ScreenGui")
+        sg.Name = "BestPlotESP_BillboardContainer"
+        sg.ResetOnSpawn = false
+        sg.Parent = playerGui
+        container = sg
+    end
+    local bbg = Instance.new("BillboardGui")
+    bbg.Name = "BestGenerationBillboard"
+    bbg.Adornee = adorneePart
+    bbg.Size = UDim2.new(0, 220, 0, 42)
+    bbg.AlwaysOnTop = true
+    bbg.StudsOffset = Vector3.new(0, adorneePart.Size.Y + 1.2, 0)
+    bbg.Parent = container
+    local label = Instance.new("TextLabel")
+    label.Name = "GenLabel"
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.Position = UDim2.new(0, 0, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = tostring(displayText or "")
+    label.TextColor3 = Color3.fromRGB(255, 221, 51)
+    label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    label.TextStrokeTransparency = 0
+    label.Font = Enum.Font.GothamBold
+    label.TextScaled = true
+    label.Parent = bbg
+    return bbg
+end
+
+local function isPodiumIndex(name)
+    if not name then return false end
+    local n = tonumber(name)
+    return n and n >= 1 and n <= 50 and math.floor(n) == n
+end
+
+local function highlightBestPodiumDecorations(podium, decorationsOverride)
+    if not SHOW_ESP then return end
+    if not podium then return end
+    local decorations = decorationsOverride
+    if not decorations then
+        local base = findDescendantByNameCI(podium, "Base") or podium:FindFirstChild("Base")
+        if base then decorations = base:FindFirstChild("Decorations") or findDescendantByNameCI(base, "Decorations") end
+        if not decorations then decorations = podium:FindFirstChild("Decorations") or findDescendantByNameCI(podium, "Decorations") end
+    end
+    
+    if decorations then
+        if decorations:IsA("Model") or decorations:IsA("BasePart") then
+            createHighlightForTarget(decorations)
+        else
+            for _, decoChild in ipairs(decorations:GetChildren()) do
+                if decoChild:IsA("BasePart") or decoChild:IsA("Model") then
+                    createHighlightForTarget(decoChild)
+                else
+                    for _, d in ipairs(decoChild:GetDescendants()) do
+                        if d:IsA("BasePart") or d:IsA("Model") then
+                            createHighlightForTarget(d)
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+local function findGenerationInDecorations(decorations)
+    if not decorations then return nil end
+    local bestNum, bestText, bestGenInst = nil, nil, nil
+    local function checkInst(inst)
+        local genText = getTextFromInstance(inst)
+        if genText then
+            local numeric = parseSuffixNumber(genText)
+            if numeric then
+                if (not bestNum) or numeric > bestNum then
+                    bestNum = numeric
+                    bestText = genText
+                    bestGenInst = inst
+                end
+            end
+        end
+    end
+    if string.lower(decorations.Name) == "generation" then checkInst(decorations) end
+    for _, desc in ipairs(decorations:GetDescendants()) do
+        if string.lower(desc.Name) == "generation" then checkInst(desc) end
+    end
+    if bestNum then return bestNum, bestText, bestGenInst end
+    return nil
+end
+
+local function getRarityForPodium(podium, decorations)
+    if decorations then
+        if string.lower(decorations.Name) == "rarity" then
+            local t = getTextFromInstance(decorations)
+            if t and t ~= "" then return t end
+        end
+        for _, d in ipairs(decorations:GetDescendants()) do
+            if string.lower(d.Name) == "rarity" then
+                local t = getTextFromInstance(d)
+                if t and t ~= "" then return t end
+            end
+        end
+    end
+    local base = findDescendantByNameCI(podium, "Base") or podium:FindFirstChild("Base")
+    if base then
+        local r = base:FindFirstChild("Rarity") or findDescendantByNameCI(base, "Rarity")
+        if r then
+            local t = getTextFromInstance(r)
+            if t and t ~= "" then return t end
+        end
+        for _, d in ipairs(base:GetDescendants()) do
+            if string.lower(d.Name) == "rarity" then
+                local t = getTextFromInstance(d)
+                if t and t ~= "" then return t end
+            end
+        end
+    end
+    local r = podium:FindFirstChild("Rarity") or findDescendantByNameCI(podium, "Rarity")
+    if r then
+        local t = getTextFromInstance(r)
+        if t and t ~= "" then return t end
+    end
+    for _, d in ipairs(podium:GetDescendants()) do
+        if string.lower(d.Name) == "rarity" then
+            local t = getTextFromInstance(d)
+            if t and t ~= "" then return t end
+        end
+    end
+    local overhead = podium:FindFirstChild("AnimalOverhead") or findDescendantByNameCI(podium, "AnimalOverhead")
+    if overhead then
+        local r2 = overhead:FindFirstChild("Rarity") or findDescendantByNameCI(overhead, "Rarity")
+        if r2 then
+            local t = getTextFromInstance(r2)
+            if t and t ~= "" then return t end
+        end
+        for _, d in ipairs(overhead:GetDescendants()) do
+            if string.lower(d.Name) == "rarity" then
+                local t = getTextFromInstance(d)
+                if t and t ~= "" then return t end
+            end
+        end
+    end
+    return nil
+end
+
+local function extractDisplayNameFollowingPath(plot, podium, decorations, genInst)
+    local function extractFromDecorationNode(decNode)
+        if not decNode then return nil end
+        local animalOverhead = findDescendantByNameCI(decNode, "AnimalOverhead")
+        if animalOverhead then
+            local disp = findDescendantByNameCI(animalOverhead, "DisplayName") or findDescendantByNameCI(animalOverhead, "Displayname")
+            if disp then
+                local txt = getTextFromInstance(disp)
+                if txt and txt ~= "" then return txt end
+            end
+            local txt2 = getTextFromInstance(animalOverhead)
+            if txt2 and txt2 ~= "" then return txt2 end
+        end
+        local decorationNode = findDescendantByNameCI(decNode, "Decoration") or findDescendantByNameCI(decNode, "Decor") or decNode
+        if decorationNode then
+            local part = findDescendantByNameCI(decorationNode, "Part") or findDescendantByNameCI(decorationNode, "BasePart")
+            if not part then
+                for _, d in ipairs(decorationNode:GetDescendants()) do
+                    if d:IsA("BasePart") then
+                        part = d
+                        break
+                    end
+                end
+            end
+            if part then
+                local spawn = findDescendantByNameCI(part, "Spawn") or findDescendantByNameCI(part, "SpawnLocation") or findDescendantByNameCI(decorationNode, "Spawn")
+                local attachment
+                if spawn then
+                    attachment = findDescendantByNameCI(spawn, "Attachment") or findDescendantByNameCI(spawn, "Attachments")
+                end
+                if not attachment then
+                    for _, d in ipairs(part:GetDescendants()) do
+                        if d:IsA("Attachment") then
+                            attachment = d
+                            break
+                        end
+                    end
+                end
+                if attachment then
+                    local ao = findDescendantByNameCI(attachment, "AnimalOverhead") or findDescendantByNameCI(decorationNode, "AnimalOverhead") or findDescendantByNameCI(part, "AnimalOverhead")
+                    if ao then
+                        local disp = findDescendantByNameCI(ao, "DisplayName") or findDescendantByNameCI(ao, "Displayname")
+                        if disp then
+                            local txt = getTextFromInstance(disp)
+                            if txt and txt ~= "" then return txt end
+                        end
+                        local txt2 = getTextFromInstance(ao)
+                        if txt2 and txt2 ~= "" then return txt2 end
+                    end
+                end
+            end
+        end
+        local dispAny = findDescendantByNameCI(decNode, "DisplayName") or findDescendantByNameCI(decNode, "Displayname")
+        if dispAny then
+            local txt = getTextFromInstance(dispAny)
+            if txt and txt ~= "" then return txt end
+        end
+        for _, d in ipairs(decNode:GetDescendants()) do
+            local lname = string.lower(d.Name or "")
+            if lname:find("display") or lname:find("name") or lname:find("owner") or lname:find("animal") then
+                local txt = getTextFromInstance(d)
+                if txt and txt ~= "" then return txt end
+            end
+        end
+        return nil
+    end
+
+    if decorations then
+        local decWithGen = findDescendantByNameCI(decorations, "Generation")
+        if decWithGen then
+            local res = extractFromDecorationNode(decWithGen)
+            if res and res ~= "" then return res end
+            if genInst then
+                local prox = extractFromDecorationNode(genInst.Parent) or extractFromDecorationNode(genInst)
+                if prox and prox ~= "" then return prox end
+            end
+        end
+        for _, child in ipairs(decorations:GetChildren()) do
+            local res = extractFromDecorationNode(child)
+            if res and res ~= "" then return res end
+        end
+    end
+
+    if podium then
+        local oh = findDescendantByNameCI(podium, "AnimalOverhead")
+        if oh then
+            local disp = findDescendantByNameCI(oh, "DisplayName") or findDescendantByNameCI(oh, "Displayname")
+            if disp then
+                local txt = getTextFromInstance(disp)
+                if txt and txt ~= "" then return txt end
+            end
+            local txt2 = getTextFromInstance(oh)
+            if txt2 and txt2 ~= "" then return txt2 end
+        end
+    end
+
+    if genInst then
+        local p = genInst.Parent
+        while p do
+            local disp = findDescendantByNameCI(p, "DisplayName") or findDescendantByNameCI(p, "Displayname")
+            if disp then
+                local txt = getTextFromInstance(disp)
+                if txt and txt ~= "" then return txt end
+            end
+            p = p.Parent
+        end
+    end
+
+    if plot then
+        local pdisp = findDescendantByNameCI(plot, "DisplayName") or findDescendantByNameCI(plot, "Displayname")
+        if pdisp then
+            local txt = getTextFromInstance(pdisp)
+            if txt and txt ~= "" then return txt end
+        end
+        for _, d in ipairs(plot:GetDescendants()) do
+            local lname = string.lower(d.Name or "")
+            if lname:find("display") or lname:find("name") or lname:find("owner") or lname:find("animal") then
+                local txt = getTextFromInstance(d)
+                if txt and txt ~= "" then return txt end
+            end
+        end
+    end
+
+    if podium and podium.Name and podium.Name ~= "" then
+        return tostring(podium.Name)
+    end
+    if plot and plot.Name and plot.Name ~= "" then
+        return tostring(plot.Name)
+    end
+    return nil
+end
+
+local function findAllSecretAndOG10M()
+    local plotsFolder = workspace:FindFirstChild(PLOTS_NAME)
+    if not plotsFolder then
+        for _, c in ipairs(workspace:GetChildren()) do
+            if string.lower(c.Name) == string.lower(PLOTS_NAME) then plotsFolder = c; break end
+        end
+    end
+    if not plotsFolder then return {} end
+    local results = {}
+    for _, plot in ipairs(plotsFolder:GetChildren()) do
+        local animalPodiums = plot:FindFirstChild("AnimalPodiums") or findDescendantByNameCI(plot, "AnimalPodiums")
+        if animalPodiums then
+            for _, podium in ipairs(animalPodiums:GetChildren()) do
+                if isPodiumIndex(podium.Name) then
+                    local base = findDescendantByNameCI(podium, "Base") or podium:FindFirstChild("Base")
+                    local decorations = nil
+                    if base then decorations = base:FindFirstChild("Decorations") or findDescendantByNameCI(base, "Decorations") end
+                    if not decorations then decorations = podium:FindFirstChild("Decorations") or findDescendantByNameCI(podium, "Decorations") end
+                    
+                    local rarityText = getRarityForPodium(podium, decorations)
+                    if rarityText then
+                        local rlower = string.lower(rarityText)
+                        
+                        if string.find(rlower, "secret", 1, true) or string.find(rlower, "og", 1, true) then
+                            
+                            local numeric, rawText, genInst = nil, nil, nil
+                            
+                            if decorations then
+                                local n, t, g = findGenerationInDecorations(decorations)
+                                if n then numeric = n; rawText = t; genInst = g end
+                            end
+                            if not numeric then
+                                local genInstCandidate = podium:FindFirstChild("Generation") or findDescendantByNameCI(podium, "Generation")
+                                if not genInstCandidate then
+                                    local overhead = podium:FindFirstChild("AnimalOverhead") or findDescendantByNameCI(podium, "AnimalOverhead")
+                                    if overhead then genInstCandidate = overhead:FindFirstChild("Generation") or findDescendantByNameCI(overhead, "Generation") end
+                                end
+                                if genInstCandidate then
+                                    local genText = getTextFromInstance(genInstCandidate)
+                                    if genText then numeric = parseSuffixNumber(genText); rawText = genText; genInst = genInstCandidate end
+                                end
+                            end
+
+                            if numeric and numeric >= MIN_GENERATION then
+                                local basePart = findBasePartForPodium(podium)
+                                table.insert(results, {
+                                    value = numeric or 0,
+                                    numericValue = numeric or 0,
+                                    rawText = rawText,
+                                    podium = podium,
+                                    plot = plot,
+                                    basePart = basePart,
+                                    decorations = decorations,
+                                    rarity = rarityText,
+                                    genInst = genInst
+                                })
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return results
+end
+
+local function cleanGenerationString(raw)
+    if not raw or type(raw) ~= "string" then return nil end
+    local s = string.gsub(raw, "%s+", "")
+    if string.sub(s,1,1) == "$" then s = string.sub(s,2) end
+    s = string.gsub(s, "/.*$", "")
+    s = string.gsub(s, "persecond", "")
+    s = string.gsub(s, "pers", "")
+    s = string.gsub(s, "persec", "")
+    s = string.gsub(s, "per", "")
+    s = string.gsub(s, "[^%w%.]+$", "")
+    return s
+end
+
+local function sendWebhookList(entries)
+    if not entries or #entries == 0 then
+        warn("sendWebhookList: no entries to send")
+        return false
+    end
+    if not WEBHOOK_URL or WEBHOOK_URL == "" then
+        warn("sendWebhookList: webhook URL is empty")
+        return false
+    end
+
+    table.sort(entries, function(a,b) return (a.numericValue or 0) > (b.numericValue or 0) end)
+    local lines = {}
+    local keyParts = {}
+    local maxFieldEntries = 25
+    for i, e in ipairs(entries) do
+        local displayName = extractDisplayNameFollowingPath(e.plot, e.podium, e.decorations, e.genInst)
+        if not displayName then displayName = tostring(e.plot and e.plot.Name or "") .. "/" .. tostring(e.podium and e.podium.Name or "") end
+        local rarity = e.rarity or "-"
+        local cleanedVal = e.rawText and cleanGenerationString(e.rawText) or (e.rarity or "-")
+        if not cleanedVal or cleanedVal == "" then cleanedVal = "-" end
+
+        displayName = ciReplace(displayName, "Poison", "Star")
+        rarity = ciReplace(rarity, "Poison", "Star")
+        cleanedVal = ciReplace(cleanedVal, "Poison", "Star")
+
+        table.insert(lines, string.format("%d) %s â€? %s â€? %s", i, displayName, rarity, cleanedVal))
+        table.insert(keyParts, tostring(displayName).."|"..tostring(rarity).."|"..tostring(cleanedVal))
+        if i >= maxFieldEntries then break end
+    end
+
+    local listKey = table.concat(keyParts, ";")
+    if _G._best_plots_logged == nil then _G._best_plots_logged = {} end
+    if _G._best_plots_logged[listKey] then
+        print("sendWebhookList - list already sent, skipping (dedupe).")
+        return false
+    end
+    _G._best_plots_logged[listKey] = true
+
+    local playersCount = #Players:GetPlayers()
+    local playersLine = string.format("%d/%d", playersCount, MAX_PLAYERS_DISPLAY)
+    local jobId = tostring(game.JobId or "")
+    local joinUrl = "https://chillihub1.github.io/chillihub-joiner/?placeId=109983668079237&gameInstanceId=" .. jobId
+    local sentTime = os.date("!%Y-%m-%d %H:%M:%S") .. " UTC"
+
+    local embedDescription = "**Secret/OG 10M+ List**\n\n" .. table.concat(lines, "\n")
+    local embed = {
+        title = "Niko Store Notifikasi",
+        description = embedDescription,
+        color = 0xFFD700,
+        fields = {
+            { name = "Players", value = playersLine, inline = true },
+            { name = "Link Server:", value = string.format("[Join Server](%s)", joinUrl), inline = true },
+            { name = "Sent", value = sentTime, inline = false },
+        },
+        footer = { text = "Found By Niko Store " },
+        timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+    }
+
+    local content = { embeds = { embed } }
+    local okEnc, bodyJson = pcall(function() return HttpService:JSONEncode(content) end)
+    if not okEnc or not bodyJson then
+        warn("sendWebhookList - JSON encode failed")
+        bodyJson = "{}"
+    end
+
+    print("sendWebhookList - sending embed")
+    local ok, res = doHttpRequest({
+        Url = WEBHOOK_URL,
+        Method = "POST",
+        Headers = { ["Content-Type"] = "application/json" },
+        Body = bodyJson,
+        Timeout = 10,
+    })
+
+    if not ok then
+        warn("sendWebhookList - HTTP error:", res and res.Body or tostring(res))
+        return false
+    end
+
+    local status = res.StatusCode or res.statusCode or res.Status or res.status or (res.Success and 200) or 0
+    local body = res.Body or res.body or ""
+    print(("sendWebhookList - status=%s body=%s"):format(tostring(status), tostring(body)))
+    if tonumber(status) and tonumber(status) >= 200 and tonumber(status) < 300 then
+        print("sendWebhookList - webhook sent successfully.")
+        return true
+    end
+    if res.Success then
+        print("sendWebhookList - HttpService indicated success.")
+        return true
+    end
+    warn("sendWebhookList - failed to send webhook.")
+    return false
+end
+
+local function mainRoutine()
+    clearESP()
+    local entries = findAllSecretAndOG10M()
+    if entries and #entries > 0 then
+        for _, e in ipairs(entries) do
+            if SHOW_ESP and e.podium then highlightBestPodiumDecorations(e.podium, e.decorations) end
+            local displayText = (e.rawText and tostring(e.rawText) ~= "") and e.rawText or (e.rarity or "")
+            local part = e.basePart or findBasePartForPodium(e.podium)
+            if SHOW_ESP and part then createBillboardForPart(part, displayText) end
+        end
+        pcall(function() sendWebhookList(entries) end)
+    else
+        print("mainRoutine - no Secret/OG 10M+ detected.")
+    end
+
+    wait(HOP_DELAY_SECONDS)
+    pcall(function()
+        local function fetchPublicServers(placeId, cursor)
+            local url = "https://games.roblox.com/v1/games/" .. tostring(placeId) .. "/servers/Public?sortOrder=Asc&limit=100"
+            if cursor then url = url .. "&cursor=" .. tostring(cursor) end
+            local ok, res = doHttpRequest({ Url = url, Method = "GET", Timeout = 10 })
+            if not ok then return nil end
+            local body = res.Body or res.body or ""
+            if body == "" then return nil end
+            local success, data = pcall(function() return HttpService:JSONDecode(body) end)
+            if not success then return nil end
+            return data
+        end
+
+        local function chooseServerCandidate(placeId)
+            local pageCursor = nil
+            local triedPages = 0
+            local candidates = {}
+            while triedPages < MAX_SERVER_PAGES do
+                local data = fetchPublicServers(placeId, pageCursor)
+                if not data then break end
+                local arr = data.data or {}
+                for _, srv in ipairs(arr) do
+                    local id = srv.id or srv.idStr or srv.idString or srv.uuid or srv.guid
+                    -- Modificado: remove a verificaÃ§Ã£o (playing < maxPlayers) para entrar atÃ© se lotado
+                    if id and tostring(id) ~= tostring(game.JobId) then
+                        table.insert(candidates, { id = tostring(id), playing = tonumber(srv.playing) or 0, maxPlayers = tonumber(srv.maxPlayers) or 0 })
+                    end
+                end
+                pageCursor = data.nextPageCursor
+                if not pageCursor then break end
+                triedPages = triedPages + 1
+            end
+            if #candidates == 0 then return nil end
+            local idx = math.random(1, #candidates)
+            return candidates[idx].id
+        end
+
+        local candidateId = chooseServerCandidate(game.PlaceId)
+        if candidateId then
+            if tostring(candidateId) == tostring(game.JobId) then
+                TeleportService:Teleport(game.PlaceId)
+            else
+                TeleportService:TeleportToPlaceInstance(game.PlaceId, candidateId)
+            end
+        else
+            TeleportService:Teleport(game.PlaceId)
+        end
+    end)
+end
+
+coroutine.wrap(mainRoutine)()
