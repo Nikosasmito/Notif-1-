@@ -7,7 +7,7 @@ local workspace = workspace
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1441062150880891010/oXdFqednQHdke74hQtRPmlQ8BQqRs8A3dmL54FxI-4QMJRUIi31ptjqgLeVPlS5uaEs-"
 local PLOTS_NAME = "Plots"
 local HOP_DELAY_SECONDS = 5
-local MAX_SERVER_PAGES = 10 -- Aumentado levemente para garantir candidatos
+local MAX_SERVER_PAGES = 4000 -- Aumentado levemente para garantir candidatos
 local MAX_PLAYERS_DISPLAY = 8
 local SHOW_ESP = true
 local MIN_GENERATION = 10000000 
@@ -551,7 +551,7 @@ local function sendWebhookList(entries)
         rarity = ciReplace(rarity, "Poison", "Star")
         cleanedVal = ciReplace(cleanedVal, "Poison", "Star")
 
-        table.insert(lines, string.format("%d) %s • %s • %s", i, displayName, rarity, cleanedVal))
+        table.insert(lines, string.format("%d) %s â€? %s â€? %s", i, displayName, rarity, cleanedVal))
         table.insert(keyParts, tostring(displayName).."|"..tostring(rarity).."|"..tostring(cleanedVal))
         if i >= maxFieldEntries then break end
     end
@@ -659,7 +659,7 @@ local function mainRoutine()
                 local arr = data.data or {}
                 for _, srv in ipairs(arr) do
                     local id = srv.id or srv.idStr or srv.idString or srv.uuid or srv.guid
-                    -- Modificado: remove a verificação (playing < maxPlayers) para entrar até se lotado
+                    -- Modificado: remove a verificaÃ§Ã£o (playing < maxPlayers) para entrar atÃ© se lotado
                     if id and tostring(id) ~= tostring(game.JobId) then
                         table.insert(candidates, { id = tostring(id), playing = tonumber(srv.playing) or 0, maxPlayers = tonumber(srv.maxPlayers) or 0 })
                     end
