@@ -7,10 +7,11 @@ local workspace = workspace
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1441062150880891010/oXdFqednQHdke74hQtRPmlQ8BQqRs8A3dmL54FxI-4QMJRUIi31ptjqgLeVPlS5uaEs-"
 local PLOTS_NAME = "Plots"
 local HOP_DELAY_SECONDS = 5
-local MAX_SERVER_PAGES = 10 -- Aumentado levemente para garantir candidatos
+local MAX_SERVER_PAGES = 10
 local MAX_PLAYERS_DISPLAY = 8
 local SHOW_ESP = true
 local MIN_GENERATION = 10000000 
+local MIN_FREE_SLOTS = 1
 
 local function ciReplace(str, target, repl)
     if not str or not target or repl == nil then return str end
@@ -551,7 +552,7 @@ local function sendWebhookList(entries)
         rarity = ciReplace(rarity, "Poison", "Star")
         cleanedVal = ciReplace(cleanedVal, "Poison", "Star")
 
-        table.insert(lines, string.format("%d) %s â€? %s â€? %s", i, displayName, rarity, cleanedVal))
+        table.insert(lines, string.format("%d) %s - %s - %s", i, displayName, rarity, cleanedVal))
         table.insert(keyParts, tostring(displayName).."|"..tostring(rarity).."|"..tostring(cleanedVal))
         if i >= maxFieldEntries then break end
     end
@@ -659,18 +660,35 @@ local function mainRoutine()
                 local arr = data.data or {}
                 for _, srv in ipairs(arr) do
                     local id = srv.id or srv.idStr or srv.idString or srv.uuid or srv.guid
-                    -- Modificado: remove a verificaÃ§Ã£o (playing < maxPlayers) para entrar atÃ© se lotado
-                    if id and tostring(id) ~= tostring(game.JobId) then
-                        table.insert(candidates, { id = tostring(id), playing = tonumber(srv.playing) or 0, maxPlayers = tonumber(srv.maxPlayers) or 0 })
+                    local playing = tonumber(srv.playing) or 0
+                    local maxPlayers = tonumber(srv.maxPlayers) or 0
+                    local freeSlots = maxPlayers - playing
+                    if id and tostring(id) ~= tostring(game.JobId) and freeSlots >= MIN_FREE_SLOTS then
+                        table.insert(candidates, { 
+                            id = tostring(id), 
+                            playing = playing, 
+                            maxPlayers = maxPlayers,
+                            freeSlots = freeSlots
+                        })
                     end
                 end
                 pageCursor = data.nextPageCursor
                 if not pageCursor then break end
                 triedPages = triedPages + 1
             end
-            if #candidates == 0 then return nil end
-            local idx = math.random(1, #candidates)
-            return candidates[idx].id
+            if #candidates == 0 then 
+                print("chooseServerCandidate - no available server with free slots found")
+                return nil 
+            end
+            table.sort(candidates, function(a, b)
+                return a.freeSlots > b.freeSlots
+            end)
+            local topCount = math.min(5, #candidates)
+            local idx = math.random(1, topCount)
+            local chosen = candidates[idx]
+            print(string.format("chooseServerCandidate - chosen server: %s (%d/%d players, %d free slots)", 
+                chosen.id, chosen.playing, chosen.maxPlayers, chosen.freeSlots))
+            return chosen.id
         end
 
         local candidateId = chooseServerCandidate(game.PlaceId)
@@ -681,6 +699,7 @@ local function mainRoutine()
                 TeleportService:TeleportToPlaceInstance(game.PlaceId, candidateId)
             end
         else
+            print("No non-full servers available, teleporting to random server...")
             TeleportService:Teleport(game.PlaceId)
         end
     end)
