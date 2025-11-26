@@ -7,11 +7,14 @@ local workspace = workspace
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1441062150880891010/oXdFqednQHdke74hQtRPmlQ8BQqRs8A3dmL54FxI-4QMJRUIi31ptjqgLeVPlS5uaEs-"
 local PLOTS_NAME = "Plots"
 local HOP_DELAY_SECONDS = 5
-local MAX_SERVER_PAGES = 10
+local MAX_SERVER_PAGES = 15
 local MAX_PLAYERS_DISPLAY = 8
 local SHOW_ESP = true
 local MIN_GENERATION = 10000000 
-local MIN_FREE_SLOTS = 1
+
+local MIN_FREE_SLOTS = 2
+local MAX_FILL_PERCENT = 75
+local PREFER_EMPTIEST = true
 
 local function ciReplace(str, target, repl)
     if not str or not target or repl == nil then return str end
@@ -654,53 +657,91 @@ local function mainRoutine()
             local pageCursor = nil
             local triedPages = 0
             local candidates = {}
+            
+            print("[ServerHop] Mencari server yang tidak penuh...")
+            
             while triedPages < MAX_SERVER_PAGES do
                 local data = fetchPublicServers(placeId, pageCursor)
                 if not data then break end
                 local arr = data.data or {}
+                
                 for _, srv in ipairs(arr) do
                     local id = srv.id or srv.idStr or srv.idString or srv.uuid or srv.guid
                     local playing = tonumber(srv.playing) or 0
                     local maxPlayers = tonumber(srv.maxPlayers) or 0
-                    local freeSlots = maxPlayers - playing
-                    if id and tostring(id) ~= tostring(game.JobId) and freeSlots >= MIN_FREE_SLOTS then
-                        table.insert(candidates, { 
-                            id = tostring(id), 
-                            playing = playing, 
-                            maxPlayers = maxPlayers,
-                            freeSlots = freeSlots
-                        })
+                    
+                    if id and maxPlayers > 0 then
+                        local freeSlots = maxPlayers - playing
+                        local fillPercent = (playing / maxPlayers) * 100
+                        
+                        local isNotCurrentServer = tostring(id) ~= tostring(game.JobId)
+                        local hasEnoughSlots = freeSlots >= MIN_FREE_SLOTS
+                        local notTooFull = fillPercent <= MAX_FILL_PERCENT
+                        local isNotFull = playing < maxPlayers
+                        
+                        if isNotCurrentServer and hasEnoughSlots and notTooFull and isNotFull then
+                            table.insert(candidates, { 
+                                id = tostring(id), 
+                                playing = playing, 
+                                maxPlayers = maxPlayers,
+                                freeSlots = freeSlots,
+                                fillPercent = fillPercent
+                            })
+                        end
                     end
                 end
+                
                 pageCursor = data.nextPageCursor
                 if not pageCursor then break end
                 triedPages = triedPages + 1
             end
+            
             if #candidates == 0 then 
-                print("chooseServerCandidate - no available server with free slots found")
+                print("[ServerHop] TIDAK ADA server yang memenuhi syarat (min " .. MIN_FREE_SLOTS .. " slot kosong, max " .. MAX_FILL_PERCENT .. "% penuh)")
+                print("[ServerHop] Menunggu dan mencoba lagi...")
                 return nil 
             end
+            
             table.sort(candidates, function(a, b)
                 return a.freeSlots > b.freeSlots
             end)
-            local topCount = math.min(5, #candidates)
-            local idx = math.random(1, topCount)
-            local chosen = candidates[idx]
-            print(string.format("chooseServerCandidate - chosen server: %s (%d/%d players, %d free slots)", 
-                chosen.id, chosen.playing, chosen.maxPlayers, chosen.freeSlots))
+            
+            local chosen
+            if PREFER_EMPTIEST then
+                chosen = candidates[1]
+            else
+                local topCount = math.min(3, #candidates)
+                local idx = math.random(1, topCount)
+                chosen = candidates[idx]
+            end
+            
+            print(string.format("[ServerHop] Dipilih: %s (%d/%d pemain, %d slot kosong, %.1f%% penuh)", 
+                chosen.id, chosen.playing, chosen.maxPlayers, chosen.freeSlots, chosen.fillPercent))
+            
             return chosen.id
         end
 
-        local candidateId = chooseServerCandidate(game.PlaceId)
-        if candidateId then
-            if tostring(candidateId) == tostring(game.JobId) then
-                TeleportService:Teleport(game.PlaceId)
-            else
-                TeleportService:TeleportToPlaceInstance(game.PlaceId, candidateId)
+        local maxRetries = 3
+        local retryCount = 0
+        local candidateId = nil
+        
+        while retryCount < maxRetries and not candidateId do
+            candidateId = chooseServerCandidate(game.PlaceId)
+            if not candidateId then
+                retryCount = retryCount + 1
+                if retryCount < maxRetries then
+                    print("[ServerHop] Retry " .. retryCount .. "/" .. maxRetries .. " dalam 3 detik...")
+                    wait(3)
+                end
             end
+        end
+        
+        if candidateId then
+            print("[ServerHop] Teleporting ke server: " .. candidateId)
+            TeleportService:TeleportToPlaceInstance(game.PlaceId, candidateId)
         else
-            print("No non-full servers available, teleporting to random server...")
-            TeleportService:Teleport(game.PlaceId)
+            print("[ServerHop] Gagal menemukan server kosong setelah " .. maxRetries .. " percobaan.")
+            print("[ServerHop] Tidak melakukan teleport untuk menghindari server penuh.")
         end
     end)
 end
