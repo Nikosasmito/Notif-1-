@@ -7,7 +7,7 @@ local workspace = workspace
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1441062150880891010/oXdFqednQHdke74hQtRPmlQ8BQqRs8A3dmL54FxI-4QMJRUIi31ptjqgLeVPlS5uaEs-"
 local PLOTS_NAME = "Plots"
 local HOP_DELAY_SECONDS = 5
-local MAX_SERVER_PAGES = 5
+local MAX_SERVER_PAGES = 10 -- Aumentado levemente para garantir candidatos
 local MAX_PLAYERS_DISPLAY = 8
 local SHOW_ESP = true
 local MIN_GENERATION = 10000000 
@@ -39,6 +39,7 @@ local function doHttpRequest(opts)
             Body = res.Body or res.body or (res.response and res.response.Body) or ""
         }
     end
+    
     if syn and syn.request then
         local ok, res = pcall(function()
             return syn.request({ Url = url, Method = method, Headers = headers, Body = body, Timeout = timeout })
@@ -550,7 +551,7 @@ local function sendWebhookList(entries)
         rarity = ciReplace(rarity, "Poison", "Star")
         cleanedVal = ciReplace(cleanedVal, "Poison", "Star")
 
-        table.insert(lines, string.format("%d) %s â€? %s â€? %s", i, displayName, rarity, cleanedVal))
+        table.insert(lines, string.format("%d) %s • %s • %s", i, displayName, rarity, cleanedVal))
         table.insert(keyParts, tostring(displayName).."|"..tostring(rarity).."|"..tostring(cleanedVal))
         if i >= maxFieldEntries then break end
     end
@@ -571,15 +572,15 @@ local function sendWebhookList(entries)
 
     local embedDescription = "**Secret/OG 10M+ List**\n\n" .. table.concat(lines, "\n")
     local embed = {
-        title = "Star X Notification â­?",
+        title = "Niko Store Notifikasi",
         description = embedDescription,
         color = 0xFFD700,
         fields = {
-            { name = "Players ðŸ‘¤", value = playersLine, inline = true },
+            { name = "Players", value = playersLine, inline = true },
             { name = "Link Server:", value = string.format("[Join Server](%s)", joinUrl), inline = true },
             { name = "Sent", value = sentTime, inline = false },
         },
-        footer = { text = "Found by: " .. player.Name },
+        footer = { text = "Found By Niko Store " },
         timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
     }
 
@@ -658,7 +659,8 @@ local function mainRoutine()
                 local arr = data.data or {}
                 for _, srv in ipairs(arr) do
                     local id = srv.id or srv.idStr or srv.idString or srv.uuid or srv.guid
-                    if id and tostring(id) ~= tostring(game.JobId) and (tonumber(srv.playing) or 0) < (tonumber(srv.maxPlayers) or 0) then
+                    -- Modificado: remove a verificação (playing < maxPlayers) para entrar até se lotado
+                    if id and tostring(id) ~= tostring(game.JobId) then
                         table.insert(candidates, { id = tostring(id), playing = tonumber(srv.playing) or 0, maxPlayers = tonumber(srv.maxPlayers) or 0 })
                     end
                 end
