@@ -8,7 +8,7 @@ local WEBHOOK_URL = "https://discord.com/api/webhooks/1441062150880891010/oXdFqe
 local PLOTS_NAME = "Plots"
 local HOP_DELAY_SECONDS = 5
 local MAX_SERVER_PAGES = 2000 -- Aumentado levemente para garantir candidatos
-local MAX_PLAYERS_DISPLAY = 8
+local MAX_PLAYERS_DISPLAY = 5
 local SHOW_ESP = true
 local MIN_GENERATION = 10000000 
 
