@@ -7,7 +7,7 @@ local workspace = workspace
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1441062150880891010/oXdFqednQHdke74hQtRPmlQ8BQqRs8A3dmL54FxI-4QMJRUIi31ptjqgLeVPlS5uaEs-"
 local PLOTS_NAME = "Plots"
 local HOP_DELAY_SECONDS = 5
-local MAX_SERVER_PAGES = 10 -- Aumentado levemente para garantir candidatos
+local MAX_SERVER_PAGES = 5
 local MAX_PLAYERS_DISPLAY = 8
 local SHOW_ESP = true
 local MIN_GENERATION = 10000000 
@@ -39,7 +39,6 @@ local function doHttpRequest(opts)
             Body = res.Body or res.body or (res.response and res.response.Body) or ""
         }
     end
-    
     if syn and syn.request then
         local ok, res = pcall(function()
             return syn.request({ Url = url, Method = method, Headers = headers, Body = body, Timeout = timeout })
@@ -572,15 +571,15 @@ local function sendWebhookList(entries)
 
     local embedDescription = "**Secret/OG 10M+ List**\n\n" .. table.concat(lines, "\n")
     local embed = {
-        title = "Niko Store Notifikasi",
+        title = "Star X Notification â­?",
         description = embedDescription,
         color = 0xFFD700,
         fields = {
-            { name = "Players", value = playersLine, inline = true },
+            { name = "Players ðŸ‘¤", value = playersLine, inline = true },
             { name = "Link Server:", value = string.format("[Join Server](%s)", joinUrl), inline = true },
             { name = "Sent", value = sentTime, inline = false },
         },
-        footer = { text = "Found By Niko Store " },
+        footer = { text = "Found by: " .. player.Name },
         timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
     }
 
@@ -659,8 +658,7 @@ local function mainRoutine()
                 local arr = data.data or {}
                 for _, srv in ipairs(arr) do
                     local id = srv.id or srv.idStr or srv.idString or srv.uuid or srv.guid
-                    -- Modificado: remove a verificaÃ§Ã£o (playing < maxPlayers) para entrar atÃ© se lotado
-                    if id and tostring(id) ~= tostring(game.JobId) then
+                    if id and tostring(id) ~= tostring(game.JobId) and (tonumber(srv.playing) or 0) < (tonumber(srv.maxPlayers) or 0) then
                         table.insert(candidates, { id = tostring(id), playing = tonumber(srv.playing) or 0, maxPlayers = tonumber(srv.maxPlayers) or 0 })
                     end
                 end
