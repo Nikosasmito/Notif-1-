@@ -571,15 +571,15 @@ local function sendWebhookList(entries)
 
     local embedDescription = "**Secret/OG 10M+ List**\n\n" .. table.concat(lines, "\n")
     local embed = {
-        title = "Star X Notification â­",
+        title = "Niko Store Notifikasi",
         description = embedDescription,
         color = 0xFFD700,
         fields = {
-            { name = "Players ðŸ‘¤", value = playersLine, inline = true },
+            { name = "Players ", value = playersLine, inline = true },
             { name = "Link Server:", value = string.format("[Join Server](%s)", joinUrl), inline = true },
             { name = "Sent", value = sentTime, inline = false },
         },
-        footer = { text = "Found by: " .. player.Name },
+        footer = { text = "Found by: Niko Store" },
         timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
     }
 
