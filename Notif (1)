@@ -12,9 +12,13 @@ local MAX_PLAYERS_DISPLAY = 8
 local SHOW_ESP = true
 local MIN_GENERATION = 10000000 
 
-local MIN_FREE_SLOTS = 2
-local MAX_FILL_PERCENT = 75
+local MIN_FREE_SLOTS = 3
+local MAX_FILL_PERCENT = 60
 local PREFER_EMPTIEST = true
+local MIN_SERVER_PING = 0
+local MAX_SERVER_PING = 300
+local TELEPORT_RETRY_ATTEMPTS = 5
+local TELEPORT_RETRY_DELAY = 2
 
 local function ciReplace(str, target, repl)
     if not str or not target or repl == nil then return str end
@@ -653,12 +657,13 @@ local function mainRoutine()
             return data
         end
 
-        local function chooseServerCandidate(placeId)
+        local function chooseServerCandidate(placeId, excludeServers)
+            excludeServers = excludeServers or {}
             local pageCursor = nil
             local triedPages = 0
             local candidates = {}
             
-            print("[ServerHop] Mencari server yang tidak penuh...")
+            print("[ServerHop] Mencari server yang tersedia...")
             
             while triedPages < MAX_SERVER_PAGES do
                 local data = fetchPublicServers(placeId, pageCursor)
@@ -669,23 +674,32 @@ local function mainRoutine()
                     local id = srv.id or srv.idStr or srv.idString or srv.uuid or srv.guid
                     local playing = tonumber(srv.playing) or 0
                     local maxPlayers = tonumber(srv.maxPlayers) or 0
+                    local ping = tonumber(srv.ping) or 0
+                    local fps = tonumber(srv.fps) or 60
                     
                     if id and maxPlayers > 0 then
                         local freeSlots = maxPlayers - playing
                         local fillPercent = (playing / maxPlayers) * 100
+                        local serverIdStr = tostring(id)
                         
-                        local isNotCurrentServer = tostring(id) ~= tostring(game.JobId)
+                        local isNotCurrentServer = serverIdStr ~= tostring(game.JobId)
+                        local isNotExcluded = not excludeServers[serverIdStr]
                         local hasEnoughSlots = freeSlots >= MIN_FREE_SLOTS
                         local notTooFull = fillPercent <= MAX_FILL_PERCENT
                         local isNotFull = playing < maxPlayers
+                        local pingOk = ping >= MIN_SERVER_PING and ping <= MAX_SERVER_PING
+                        local fpsOk = fps >= 30
+                        local isHealthy = playing > 0
                         
-                        if isNotCurrentServer and hasEnoughSlots and notTooFull and isNotFull then
+                        if isNotCurrentServer and isNotExcluded and hasEnoughSlots and notTooFull and isNotFull and pingOk and fpsOk and isHealthy then
                             table.insert(candidates, { 
-                                id = tostring(id), 
+                                id = serverIdStr, 
                                 playing = playing, 
                                 maxPlayers = maxPlayers,
                                 freeSlots = freeSlots,
-                                fillPercent = fillPercent
+                                fillPercent = fillPercent,
+                                ping = ping,
+                                fps = fps
                             })
                         end
                     end
@@ -696,14 +710,21 @@ local function mainRoutine()
                 triedPages = triedPages + 1
             end
             
+            print("[ServerHop] Ditemukan " .. #candidates .. " server yang memenuhi syarat")
+            
             if #candidates == 0 then 
-                print("[ServerHop] TIDAK ADA server yang memenuhi syarat (min " .. MIN_FREE_SLOTS .. " slot kosong, max " .. MAX_FILL_PERCENT .. "% penuh)")
-                print("[ServerHop] Menunggu dan mencoba lagi...")
+                print("[ServerHop] TIDAK ADA server yang memenuhi syarat:")
+                print("  - Min " .. MIN_FREE_SLOTS .. " slot kosong")
+                print("  - Max " .. MAX_FILL_PERCENT .. "% penuh")
+                print("  - Ping <= " .. MAX_SERVER_PING .. "ms")
                 return nil 
             end
             
             table.sort(candidates, function(a, b)
-                return a.freeSlots > b.freeSlots
+                if a.freeSlots ~= b.freeSlots then
+                    return a.freeSlots > b.freeSlots
+                end
+                return a.ping < b.ping
             end)
             
             local chosen
@@ -715,33 +736,79 @@ local function mainRoutine()
                 chosen = candidates[idx]
             end
             
-            print(string.format("[ServerHop] Dipilih: %s (%d/%d pemain, %d slot kosong, %.1f%% penuh)", 
-                chosen.id, chosen.playing, chosen.maxPlayers, chosen.freeSlots, chosen.fillPercent))
+            print(string.format("[ServerHop] Dipilih: %s (%d/%d pemain, %d slot kosong, %.1f%% penuh, ping: %dms)", 
+                chosen.id, chosen.playing, chosen.maxPlayers, chosen.freeSlots, chosen.fillPercent, chosen.ping))
             
-            return chosen.id
+            return chosen
         end
 
-        local maxRetries = 3
-        local retryCount = 0
-        local candidateId = nil
+        local function safeTeleport(placeId, serverId)
+            local success = false
+            local lastError = nil
+            
+            for attempt = 1, TELEPORT_RETRY_ATTEMPTS do
+                print("[Teleport] Percobaan " .. attempt .. "/" .. TELEPORT_RETRY_ATTEMPTS .. " ke server: " .. serverId)
+                
+                local teleportOk, teleportErr = pcall(function()
+                    local teleportOptions = Instance.new("TeleportOptions")
+                    teleportOptions.ShouldReserveServer = false
+                    TeleportService:TeleportToPlaceInstance(placeId, serverId, player, teleportOptions)
+                end)
+                
+                if teleportOk then
+                    success = true
+                    print("[Teleport] Berhasil memulai teleport!")
+                    break
+                else
+                    lastError = tostring(teleportErr)
+                    print("[Teleport] Gagal: " .. lastError)
+                    
+                    if string.find(lastError:lower(), "full") or string.find(lastError:lower(), "teleport failed") then
+                        print("[Teleport] Server penuh atau tidak bisa diakses, mencari server lain...")
+                        return false, serverId
+                    end
+                    
+                    if attempt < TELEPORT_RETRY_ATTEMPTS then
+                        print("[Teleport] Menunggu " .. TELEPORT_RETRY_DELAY .. " detik sebelum retry...")
+                        wait(TELEPORT_RETRY_DELAY)
+                    end
+                end
+            end
+            
+            return success, nil
+        end
+
+        local excludedServers = {}
+        local maxSearchRetries = 5
+        local foundValidServer = false
         
-        while retryCount < maxRetries and not candidateId do
-            candidateId = chooseServerCandidate(game.PlaceId)
-            if not candidateId then
-                retryCount = retryCount + 1
-                if retryCount < maxRetries then
-                    print("[ServerHop] Retry " .. retryCount .. "/" .. maxRetries .. " dalam 3 detik...")
-                    wait(3)
+        for searchAttempt = 1, maxSearchRetries do
+            print("[ServerHop] === Pencarian ke-" .. searchAttempt .. " ===")
+            
+            local serverInfo = chooseServerCandidate(game.PlaceId, excludedServers)
+            
+            if not serverInfo then
+                print("[ServerHop] Tidak ada server tersedia, menunggu 5 detik...")
+                wait(5)
+            else
+                local teleportSuccess, failedServerId = safeTeleport(game.PlaceId, serverInfo.id)
+                
+                if teleportSuccess then
+                    foundValidServer = true
+                    break
+                elseif failedServerId then
+                    excludedServers[failedServerId] = true
+                    print("[ServerHop] Server " .. failedServerId .. " ditandai sebagai tidak bisa diakses")
                 end
             end
         end
         
-        if candidateId then
-            print("[ServerHop] Teleporting ke server: " .. candidateId)
-            TeleportService:TeleportToPlaceInstance(game.PlaceId, candidateId)
-        else
-            print("[ServerHop] Gagal menemukan server kosong setelah " .. maxRetries .. " percobaan.")
-            print("[ServerHop] Tidak melakukan teleport untuk menghindari server penuh.")
+        if not foundValidServer then
+            print("[ServerHop] ==========================================")
+            print("[ServerHop] GAGAL menemukan server yang bisa dimasuki")
+            print("[ServerHop] setelah " .. maxSearchRetries .. " percobaan.")
+            print("[ServerHop] Script akan berhenti untuk menghindari loop.")
+            print("[ServerHop] ==========================================")
         end
     end)
 end
