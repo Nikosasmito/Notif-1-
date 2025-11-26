@@ -4,13 +4,16 @@ local playerGui = player:WaitForChild("PlayerGui")
 local HttpService = game:GetService("HttpService")
 local TeleportService = game:GetService("TeleportService")
 local workspace = workspace
+
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1441062150880891010/oXdFqednQHdke74hQtRPmlQ8BQqRs8A3dmL54FxI-4QMJRUIi31ptjqgLeVPlS5uaEs-"
 local PLOTS_NAME = "Plots"
 local HOP_DELAY_SECONDS = 5
-local MAX_SERVER_PAGES = 5
+local MAX_SERVER_PAGES = 10
 local MAX_PLAYERS_DISPLAY = 8
 local SHOW_ESP = true
-local MIN_GENERATION = 10000000 
+local MIN_GENERATION = 10000000
+local TELEPORT_MAX_RETRIES = 5
+local TELEPORT_RETRY_DELAY = 3
 
 local function ciReplace(str, target, repl)
     if not str or not target or repl == nil then return str end
@@ -29,6 +32,7 @@ local function doHttpRequest(opts)
     local headers = opts.Headers or {}
     local body = opts.Body
     local timeout = opts.Timeout or 10
+    
     local function normalize(res)
         if type(res) ~= "table" then
             return { Success = false, StatusCode = 0, Body = tostring(res) }
@@ -39,6 +43,7 @@ local function doHttpRequest(opts)
             Body = res.Body or res.body or (res.response and res.response.Body) or ""
         }
     end
+    
     if syn and syn.request then
         local ok, res = pcall(function()
             return syn.request({ Url = url, Method = method, Headers = headers, Body = body, Timeout = timeout })
@@ -52,11 +57,15 @@ local function doHttpRequest(opts)
         if ok and res then return true, normalize(res) end
     end
     if type(http_request) == "function" then
-        local ok, res = pcall(function() return http_request({ Url = url, Method = method, Headers = headers, Body = body }) end)
+        local ok, res = pcall(function() 
+            return http_request({ Url = url, Method = method, Headers = headers, Body = body }) 
+        end)
         if ok and res then return true, normalize(res) end
     end
     if type(request) == "function" then
-        local ok, res = pcall(function() return request({ Url = url, Method = method, Headers = headers, Body = body }) end)
+        local ok, res = pcall(function() 
+            return request({ Url = url, Method = method, Headers = headers, Body = body }) 
+        end)
         if ok and res then return true, normalize(res) end
     end
     if HttpService and HttpService.PostAsync then
@@ -103,7 +112,9 @@ end
 local function getTextFromInstance(inst)
     if not inst then return nil end
     local txt
-    if inst:IsA("TextLabel") or inst:IsA("TextButton") or inst:IsA("TextBox") then txt = inst.Text end
+    if inst:IsA("TextLabel") or inst:IsA("TextButton") or inst:IsA("TextBox") then 
+        txt = inst.Text 
+    end
     if (not txt) and inst:IsA("ValueBase") then
         local v = inst.Value
         if v ~= nil then txt = tostring(v) end
@@ -148,7 +159,9 @@ local function clearESP()
         end
     end
     for _, desc in ipairs(workspace:GetDescendants()) do
-        if desc:IsA("Highlight") and desc.Name == "BestPlotESP_Highlight" then desc:Destroy() end
+        if desc:IsA("Highlight") and desc.Name == "BestPlotESP_Highlight" then 
+            desc:Destroy() 
+        end
     end
 end
 
@@ -211,8 +224,12 @@ local function highlightBestPodiumDecorations(podium, decorationsOverride)
     local decorations = decorationsOverride
     if not decorations then
         local base = findDescendantByNameCI(podium, "Base") or podium:FindFirstChild("Base")
-        if base then decorations = base:FindFirstChild("Decorations") or findDescendantByNameCI(base, "Decorations") end
-        if not decorations then decorations = podium:FindFirstChild("Decorations") or findDescendantByNameCI(podium, "Decorations") end
+        if base then 
+            decorations = base:FindFirstChild("Decorations") or findDescendantByNameCI(base, "Decorations") 
+        end
+        if not decorations then 
+            decorations = podium:FindFirstChild("Decorations") or findDescendantByNameCI(podium, "Decorations") 
+        end
     end
     
     if decorations then
@@ -450,7 +467,10 @@ local function findAllSecretAndOG10M()
     local plotsFolder = workspace:FindFirstChild(PLOTS_NAME)
     if not plotsFolder then
         for _, c in ipairs(workspace:GetChildren()) do
-            if string.lower(c.Name) == string.lower(PLOTS_NAME) then plotsFolder = c; break end
+            if string.lower(c.Name) == string.lower(PLOTS_NAME) then 
+                plotsFolder = c
+                break 
+            end
         end
     end
     if not plotsFolder then return {} end
@@ -462,30 +482,43 @@ local function findAllSecretAndOG10M()
                 if isPodiumIndex(podium.Name) then
                     local base = findDescendantByNameCI(podium, "Base") or podium:FindFirstChild("Base")
                     local decorations = nil
-                    if base then decorations = base:FindFirstChild("Decorations") or findDescendantByNameCI(base, "Decorations") end
-                    if not decorations then decorations = podium:FindFirstChild("Decorations") or findDescendantByNameCI(podium, "Decorations") end
+                    if base then 
+                        decorations = base:FindFirstChild("Decorations") or findDescendantByNameCI(base, "Decorations") 
+                    end
+                    if not decorations then 
+                        decorations = podium:FindFirstChild("Decorations") or findDescendantByNameCI(podium, "Decorations") 
+                    end
                     
                     local rarityText = getRarityForPodium(podium, decorations)
                     if rarityText then
                         local rlower = string.lower(rarityText)
                         
                         if string.find(rlower, "secret", 1, true) or string.find(rlower, "og", 1, true) then
-                            
                             local numeric, rawText, genInst = nil, nil, nil
                             
                             if decorations then
                                 local n, t, g = findGenerationInDecorations(decorations)
-                                if n then numeric = n; rawText = t; genInst = g end
+                                if n then 
+                                    numeric = n
+                                    rawText = t
+                                    genInst = g 
+                                end
                             end
                             if not numeric then
                                 local genInstCandidate = podium:FindFirstChild("Generation") or findDescendantByNameCI(podium, "Generation")
                                 if not genInstCandidate then
                                     local overhead = podium:FindFirstChild("AnimalOverhead") or findDescendantByNameCI(podium, "AnimalOverhead")
-                                    if overhead then genInstCandidate = overhead:FindFirstChild("Generation") or findDescendantByNameCI(overhead, "Generation") end
+                                    if overhead then 
+                                        genInstCandidate = overhead:FindFirstChild("Generation") or findDescendantByNameCI(overhead, "Generation") 
+                                    end
                                 end
                                 if genInstCandidate then
                                     local genText = getTextFromInstance(genInstCandidate)
-                                    if genText then numeric = parseSuffixNumber(genText); rawText = genText; genInst = genInstCandidate end
+                                    if genText then 
+                                        numeric = parseSuffixNumber(genText)
+                                        rawText = genText
+                                        genInst = genInstCandidate 
+                                    end
                                 end
                             end
 
@@ -535,153 +568,256 @@ local function sendWebhookList(entries)
         return false
     end
 
-    table.sort(entries, function(a,b) return (a.numericValue or 0) > (b.numericValue or 0) end)
+    table.sort(entries, function(a,b) 
+        return (a.numericValue or 0) > (b.numericValue or 0) 
+    end)
+    
     local lines = {}
     local keyParts = {}
     local maxFieldEntries = 25
+    
     for i, e in ipairs(entries) do
         local displayName = extractDisplayNameFollowingPath(e.plot, e.podium, e.decorations, e.genInst)
-        if not displayName then displayName = tostring(e.plot and e.plot.Name or "") .. "/" .. tostring(e.podium and e.podium.Name or "") end
+        if not displayName then 
+            displayName = tostring(e.plot and e.plot.Name or "") .. "/" .. tostring(e.podium and e.podium.Name or "") 
+        end
         local rarity = e.rarity or "-"
         local cleanedVal = e.rawText and cleanGenerationString(e.rawText) or (e.rarity or "-")
-        if not cleanedVal or cleanedVal == "" then cleanedVal = "-" end
-
-        displayName = ciReplace(displayName, "Poison", "Star")
-        rarity = ciReplace(rarity, "Poison", "Star")
-        cleanedVal = ciReplace(cleanedVal, "Poison", "Star")
-
-        table.insert(lines, string.format("%d) %s â€? %s â€? %s", i, displayName, rarity, cleanedVal))
-        table.insert(keyParts, tostring(displayName).."|"..tostring(rarity).."|"..tostring(cleanedVal))
-        if i >= maxFieldEntries then break end
+        local line = string.format("**#%d** | %s | %s | %s", i, cleanedVal, rarity, displayName)
+        table.insert(lines, line)
+        table.insert(keyParts, cleanedVal .. " " .. rarity)
+        if i >= MAX_PLAYERS_DISPLAY then break end
     end
 
-    local listKey = table.concat(keyParts, ";")
-    if _G._best_plots_logged == nil then _G._best_plots_logged = {} end
-    if _G._best_plots_logged[listKey] then
-        print("sendWebhookList - list already sent, skipping (dedupe).")
-        return false
-    end
-    _G._best_plots_logged[listKey] = true
-
-    local playersCount = #Players:GetPlayers()
-    local playersLine = string.format("%d/%d", playersCount, MAX_PLAYERS_DISPLAY)
-    local jobId = tostring(game.JobId or "")
-    local joinUrl = "https://chillihub1.github.io/chillihub-joiner/?placeId=109983668079237&gameInstanceId=" .. jobId
-    local sentTime = os.date("!%Y-%m-%d %H:%M:%S") .. " UTC"
-
-    local embedDescription = "**Secret/OG 10M+ List**\n\n" .. table.concat(lines, "\n")
+    local currentJobId = game.JobId or "N/A"
+    local currentPlaceId = game.PlaceId or "N/A"
+    local playersInServer = #Players:GetPlayers()
+    
+    local description = table.concat(lines, "\n")
+    if description == "" then description = "No data." end
+    
+    local key = table.concat(keyParts, " | ")
+    if #key > 100 then key = string.sub(key, 1, 100) .. "..." end
+    
     local embed = {
-        title = "Star X Notification â­?",
-        description = embedDescription,
-        color = 0xFFD700,
+        title = "ðŸ”¥ Secret/OG Pets (>= 10M Generation)",
+        description = description,
+        color = 3447003,
         fields = {
-            { name = "Players ðŸ‘¤", value = playersLine, inline = true },
-            { name = "Link Server:", value = string.format("[Join Server](%s)", joinUrl), inline = true },
-            { name = "Sent", value = sentTime, inline = false },
+            { name = "Job ID", value = tostring(currentJobId), inline = true },
+            { name = "Place ID", value = tostring(currentPlaceId), inline = true },
+            { name = "Players", value = tostring(playersInServer), inline = true }
         },
-        footer = { text = "Found by: " .. player.Name },
+        footer = { text = "Auto Hop Script | " .. os.date("%Y-%m-%d %H:%M:%S") },
         timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
     }
-
-    local content = { embeds = { embed } }
-    local okEnc, bodyJson = pcall(function() return HttpService:JSONEncode(content) end)
-    if not okEnc or not bodyJson then
-        warn("sendWebhookList - JSON encode failed")
-        bodyJson = "{}"
-    end
-
-    print("sendWebhookList - sending embed")
-    local ok, res = doHttpRequest({
+    
+    local payload = {
+        username = "Plot Scanner",
+        avatar_url = "https://i.imgur.com/AfFp7pu.png",
+        embeds = { embed },
+        content = "**Key:** " .. key
+    }
+    
+    local jsonBody = HttpService:JSONEncode(payload)
+    local success, response = doHttpRequest({
         Url = WEBHOOK_URL,
         Method = "POST",
         Headers = { ["Content-Type"] = "application/json" },
-        Body = bodyJson,
-        Timeout = 10,
+        Body = jsonBody
     })
-
-    if not ok then
-        warn("sendWebhookList - HTTP error:", res and res.Body or tostring(res))
+    
+    if success and response and response.Success then
+        print("[WEBHOOK] Successfully sent to Discord")
+        return true
+    else
+        warn("[WEBHOOK] Failed to send:", response and response.Body or "unknown error")
         return false
     end
-
-    local status = res.StatusCode or res.statusCode or res.Status or res.status or (res.Success and 200) or 0
-    local body = res.Body or res.body or ""
-    print(("sendWebhookList - status=%s body=%s"):format(tostring(status), tostring(body)))
-    if tonumber(status) and tonumber(status) >= 200 and tonumber(status) < 300 then
-        print("sendWebhookList - webhook sent successfully.")
-        return true
-    end
-    if res.Success then
-        print("sendWebhookList - HttpService indicated success.")
-        return true
-    end
-    warn("sendWebhookList - failed to send webhook.")
-    return false
 end
 
-local function mainRoutine()
-    clearESP()
-    local entries = findAllSecretAndOG10M()
-    if entries and #entries > 0 then
-        for _, e in ipairs(entries) do
-            if SHOW_ESP and e.podium then highlightBestPodiumDecorations(e.podium, e.decorations) end
-            local displayText = (e.rawText and tostring(e.rawText) ~= "") and e.rawText or (e.rarity or "")
-            local part = e.basePart or findBasePartForPodium(e.podium)
-            if SHOW_ESP and part then createBillboardForPart(part, displayText) end
+local function safelyTeleportToServer(placeId, jobId, maxRetries)
+    maxRetries = maxRetries or TELEPORT_MAX_RETRIES
+    local retryCount = 0
+    
+    local function attemptTeleport()
+        retryCount = retryCount + 1
+        print(string.format("[TELEPORT] Attempt %d/%d - Teleporting to JobId: %s", retryCount, maxRetries, tostring(jobId)))
+        
+        if not jobId or jobId == "" then
+            warn("[TELEPORT] Invalid JobId provided")
+            return false
         end
-        pcall(function() sendWebhookList(entries) end)
-    else
-        print("mainRoutine - no Secret/OG 10M+ detected.")
-    end
-
-    wait(HOP_DELAY_SECONDS)
-    pcall(function()
-        local function fetchPublicServers(placeId, cursor)
-            local url = "https://games.roblox.com/v1/games/" .. tostring(placeId) .. "/servers/Public?sortOrder=Asc&limit=100"
-            if cursor then url = url .. "&cursor=" .. tostring(cursor) end
-            local ok, res = doHttpRequest({ Url = url, Method = "GET", Timeout = 10 })
-            if not ok then return nil end
-            local body = res.Body or res.body or ""
-            if body == "" then return nil end
-            local success, data = pcall(function() return HttpService:JSONDecode(body) end)
-            if not success then return nil end
-            return data
-        end
-
-        local function chooseServerCandidate(placeId)
-            local pageCursor = nil
-            local triedPages = 0
-            local candidates = {}
-            while triedPages < MAX_SERVER_PAGES do
-                local data = fetchPublicServers(placeId, pageCursor)
-                if not data then break end
-                local arr = data.data or {}
-                for _, srv in ipairs(arr) do
-                    local id = srv.id or srv.idStr or srv.idString or srv.uuid or srv.guid
-                    if id and tostring(id) ~= tostring(game.JobId) and (tonumber(srv.playing) or 0) < (tonumber(srv.maxPlayers) or 0) then
-                        table.insert(candidates, { id = tostring(id), playing = tonumber(srv.playing) or 0, maxPlayers = tonumber(srv.maxPlayers) or 0 })
-                    end
-                end
-                pageCursor = data.nextPageCursor
-                if not pageCursor then break end
-                triedPages = triedPages + 1
-            end
-            if #candidates == 0 then return nil end
-            local idx = math.random(1, #candidates)
-            return candidates[idx].id
-        end
-
-        local candidateId = chooseServerCandidate(game.PlaceId)
-        if candidateId then
-            if tostring(candidateId) == tostring(game.JobId) then
-                TeleportService:Teleport(game.PlaceId)
-            else
-                TeleportService:TeleportToPlaceInstance(game.PlaceId, candidateId)
-            end
+        
+        local teleportOptions = Instance.new("TeleportOptions")
+        teleportOptions.ServerInstanceId = jobId
+        
+        local success, errorMsg = pcall(function()
+            TeleportService:TeleportAsync(placeId, {player}, teleportOptions)
+        end)
+        
+        if success then
+            print("[TELEPORT] Teleport initiated successfully!")
+            return true
         else
-            TeleportService:Teleport(game.PlaceId)
+            warn(string.format("[TELEPORT] Failed (attempt %d): %s", retryCount, tostring(errorMsg)))
+            return false
+        end
+    end
+    
+    local teleportConnection
+    teleportConnection = TeleportService.TeleportInitFailed:Connect(function(plr, teleportResult, errorMessage, placeIdFailed, teleportOptions)
+        if plr == player then
+            warn(string.format("[TELEPORT] TeleportInitFailed: %s (Result: %s)", tostring(errorMessage), tostring(teleportResult)))
+            
+            if retryCount < maxRetries then
+                print(string.format("[TELEPORT] Retrying in %d seconds...", TELEPORT_RETRY_DELAY))
+                wait(TELEPORT_RETRY_DELAY)
+                attemptTeleport()
+            else
+                warn("[TELEPORT] Max retries reached. Teleport failed completely.")
+                if teleportConnection then
+                    teleportConnection:Disconnect()
+                end
+            end
         end
     end)
+    
+    local result = attemptTeleport()
+    
+    if not result then
+        task.wait(2)
+        if teleportConnection then
+            teleportConnection:Disconnect()
+        end
+    end
+    
+    return result
 end
 
-coroutine.wrap(mainRoutine)()
+local function getServerList(placeId, cursor)
+    cursor = cursor or ""
+    local excludeFullGames = true
+    local url = string.format(
+        "https://games.roblox.com/v1/games/%s/servers/Public?sortOrder=Desc&limit=100&excludeFullGames=%s&cursor=%s",
+        tostring(placeId),
+        tostring(excludeFullGames),
+        cursor
+    )
+    
+    local success, response = doHttpRequest({
+        Url = url,
+        Method = "GET",
+        Headers = {}
+    })
+    
+    if not success or not response or not response.Success then
+        warn("[SERVER_LIST] Failed to fetch server list")
+        return nil
+    end
+    
+    local decoded
+    local okDecode, decodeResult = pcall(function()
+        return HttpService:JSONDecode(response.Body)
+    end)
+    
+    if not okDecode or not decodeResult then
+        warn("[SERVER_LIST] Failed to decode JSON")
+        return nil
+    end
+    
+    decoded = decodeResult
+    return decoded
+end
+
+local function hopToRandomServer()
+    local placeId = game.PlaceId
+    local currentJobId = game.JobId
+    print("[HOP] Starting server hop process...")
+    
+    local allServers = {}
+    local cursor = ""
+    local pageCount = 0
+    
+    while pageCount < MAX_SERVER_PAGES do
+        local serverData = getServerList(placeId, cursor)
+        if not serverData or not serverData.data then
+            warn("[HOP] No more server data available")
+            break
+        end
+        
+        for _, server in ipairs(serverData.data) do
+            if server.id and server.id ~= currentJobId and server.playing and server.playing > 0 then
+                table.insert(allServers, server)
+            end
+        end
+        
+        pageCount = pageCount + 1
+        if serverData.nextPageCursor and serverData.nextPageCursor ~= "" then
+            cursor = serverData.nextPageCursor
+        else
+            break
+        end
+        
+        wait(0.5)
+    end
+    
+    print(string.format("[HOP] Found %d available servers", #allServers))
+    
+    if #allServers == 0 then
+        warn("[HOP] No servers found to hop to")
+        return false
+    end
+    
+    local randomServer = allServers[math.random(1, #allServers)]
+    print(string.format("[HOP] Selected server with %d players (JobId: %s)", randomServer.playing, randomServer.id))
+    
+    return safelyTeleportToServer(placeId, randomServer.id)
+end
+
+local function mainLoop()
+    print("=== SCRIPT STARTED ===")
+    print("Searching for Secret/OG pets with generation >= 10M...")
+    
+    wait(3)
+    
+    local found = findAllSecretAndOG10M()
+    print(string.format("[SCAN] Found %d qualifying pets in this server", #found))
+    
+    if #found > 0 then
+        clearESP()
+        
+        table.sort(found, function(a,b) 
+            return (a.numericValue or 0) > (b.numericValue or 0) 
+        end)
+        
+        local best = found[1]
+        if best then
+            print(string.format("[BEST] Highest Generation: %s (Rarity: %s)", 
+                tostring(best.rawText), 
+                tostring(best.rarity)
+            ))
+            
+            if best.basePart then
+                createBillboardForPart(best.basePart, "BEST: " .. tostring(best.rawText))
+            end
+            highlightBestPodiumDecorations(best.podium, best.decorations)
+        end
+        
+        sendWebhookList(found)
+    else
+        print("[SCAN] No qualifying pets found in this server")
+    end
+    
+    print(string.format("[HOP] Waiting %d seconds before hopping to next server...", HOP_DELAY_SECONDS))
+    wait(HOP_DELAY_SECONDS)
+    
+    hopToRandomServer()
+end
+
+spawn(function()
+    local success, err = pcall(mainLoop)
+    if not success then
+        warn("[ERROR] Main loop failed:", err)
+    end
+end)
