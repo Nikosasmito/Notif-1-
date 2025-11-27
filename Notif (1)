@@ -659,19 +659,11 @@ local function mainRoutine()
                     if not data then break end
                     local arr = data.data or {}
                     for _, srv in ipairs(arr) do
-    -- FILTER AGAR TIDAK MASUK SERVER TEMAN
-    if (srv.friendsPlaying == nil or srv.friendsPlaying == 0) then
-        local id = srv.id or srv.idStr or srv.idString or srv.uuid or srv.guid
-        if id and tostring(id) ~= tostring(game.JobId) then
-            table.insert(candidates, {
-                id = tostring(id),
-                playing = tonumber(srv.playing) or 0,
-                maxPlayers = tonumber(srv.maxPlayers) or 0
-            })
-        end
-    end
-end
-
+                        local id = srv.id or srv.idStr or srv.idString or srv.uuid or srv.guid
+                        if id and tostring(id) ~= tostring(game.JobId) then
+                            table.insert(candidates, { id = tostring(id), playing = tonumber(srv.playing) or 0, maxPlayers = tonumber(srv.maxPlayers) or 0 })
+                        end
+                    end
                     pageCursor = data.nextPageCursor
                     if not pageCursor then break end
                     triedPages = triedPages + 1
