@@ -7,10 +7,10 @@ local workspace = workspace
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1443447036929245294/vw9c4hohC7iRkXu5tTi_0HmwmD08cO4i9E5AnKFE4WnQmB_gpiQtHv_kf7_KNoTVZz6n"
 local PLOTS_NAME = "Plots"
 local HOP_DELAY_SECONDS = 5
-local MAX_SERVER_PAGES = 999 
+local MAX_SERVER_PAGES = 5000 
 local MAX_PLAYERS_DISPLAY = 8
 local SHOW_ESP = true
-local MIN_GENERATION = 1000000 
+local MIN_GENERATION = 10000000 
 
 local function ciReplace(str, target, repl)
     if not str or not target or repl == nil then return str end
@@ -447,7 +447,7 @@ local function extractDisplayNameFollowingPath(plot, podium, decorations, genIns
     return nil
 end
 
-local function findAllSecretAndOG1M()
+local function findAllSecretAndOG10M()
     local plotsFolder = workspace:FindFirstChild(PLOTS_NAME)
     if not plotsFolder then
         for _, c in ipairs(workspace:GetChildren()) do
@@ -569,7 +569,7 @@ local function sendWebhookList(entries)
     local joinUrl = "https://chillihub1.github.io/chillihub-joiner/?placeId=109983668079237&gameInstanceId=" .. jobId
     local sentTime = os.date("!%Y-%m-%d %H:%M:%S") .. " UTC"
 
-    local embedDescription = "**Secret/OG 1M+ List**\n\n" .. table.concat(lines, "\n")
+    local embedDescription = "**Secret/OG 10M+ List**\n\n" .. table.concat(lines, "\n")
     local embed = {
         title = "Niko Store Notifikasi",
         description = embedDescription,
@@ -621,7 +621,7 @@ end
 
 local function mainRoutine()
     clearESP()
-    local entries = findAllSecretAndOG1M()
+    local entries = findAllSecretAndOG10M()
     if entries and #entries > 0 then
         for _, e in ipairs(entries) do
             if SHOW_ESP and e.podium then highlightBestPodiumDecorations(e.podium, e.decorations) end
@@ -631,7 +631,7 @@ local function mainRoutine()
         end
         pcall(function() sendWebhookList(entries) end)
     else
-        print("mainRoutine - no Secret/OG 1M+ detected.")
+        print("mainRoutine - no Secret/OG 10M+ detected.")
     end
 
     wait(HOP_DELAY_SECONDS)
