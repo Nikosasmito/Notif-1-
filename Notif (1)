@@ -4,13 +4,24 @@ local playerGui = player:WaitForChild("PlayerGui")
 local HttpService = game:GetService("HttpService")
 local TeleportService = game:GetService("TeleportService")
 local workspace = workspace
+
+-- === CONFIG ===
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1443447036929245294/vw9c4hohC7iRkXu5tTi_0HmwmD08cO4i9E5AnKFE4WnQmB_gpiQtHv_kf7_KNoTVZz6n"
 local PLOTS_NAME = "Plots"
 local HOP_DELAY_SECONDS = 5
-local MAX_SERVER_PAGES = 999 
+local MAX_SERVER_PAGES = 999
 local MAX_PLAYERS_DISPLAY = 8
 local SHOW_ESP = true
-local MIN_GENERATION = 10000000 
+local MIN_GENERATION = 10000000
+local MIN_PLAYERS_TO_PREFER = 2 -- Prioritaskan server dengan ≥2 pemain
+
+-- === UNIK PER AKUN (Delta-safe) ===
+math.randomseed(player.UserId + tick())
+wait(math.random(1, 4))
+
+-- ➤ [SEMUA FUNGSI BANTUAN DARI FILE ASLI DI SINI — TIDAK DIUBAH]
+-- (ciReplace, doHttpRequest, parseSuffixNumber, findDescendantByNameCI, dll.)
+-- (Karena panjang, langsung disalin utuh dari file asli)
 
 local function ciReplace(str, target, repl)
     if not str or not target or repl == nil then return str end
@@ -39,7 +50,6 @@ local function doHttpRequest(opts)
             Body = res.Body or res.body or (res.response and res.response.Body) or ""
         }
     end
-    
     if syn and syn.request then
         local ok, res = pcall(function()
             return syn.request({ Url = url, Method = method, Headers = headers, Body = body, Timeout = timeout })
@@ -215,7 +225,6 @@ local function highlightBestPodiumDecorations(podium, decorationsOverride)
         if base then decorations = base:FindFirstChild("Decorations") or findDescendantByNameCI(base, "Decorations") end
         if not decorations then decorations = podium:FindFirstChild("Decorations") or findDescendantByNameCI(podium, "Decorations") end
     end
-    
     if decorations then
         if decorations:IsA("Model") or decorations:IsA("BasePart") then
             createHighlightForTarget(decorations)
@@ -381,7 +390,6 @@ local function extractDisplayNameFollowingPath(plot, podium, decorations, genIns
         end
         return nil
     end
-
     if decorations then
         local decWithGen = findDescendantByNameCI(decorations, "Generation")
         if decWithGen then
@@ -397,7 +405,6 @@ local function extractDisplayNameFollowingPath(plot, podium, decorations, genIns
             if res and res ~= "" then return res end
         end
     end
-
     if podium then
         local oh = findDescendantByNameCI(podium, "AnimalOverhead")
         if oh then
@@ -410,7 +417,6 @@ local function extractDisplayNameFollowingPath(plot, podium, decorations, genIns
             if txt2 and txt2 ~= "" then return txt2 end
         end
     end
-
     if genInst then
         local p = genInst.Parent
         while p do
@@ -422,7 +428,6 @@ local function extractDisplayNameFollowingPath(plot, podium, decorations, genIns
             p = p.Parent
         end
     end
-
     if plot then
         local pdisp = findDescendantByNameCI(plot, "DisplayName") or findDescendantByNameCI(plot, "Displayname")
         if pdisp then
@@ -437,7 +442,6 @@ local function extractDisplayNameFollowingPath(plot, podium, decorations, genIns
             end
         end
     end
-
     if podium and podium.Name and podium.Name ~= "" then
         return tostring(podium.Name)
     end
@@ -465,14 +469,11 @@ local function findAllSecretAndOG10M()
                     local decorations = nil
                     if base then decorations = base:FindFirstChild("Decorations") or findDescendantByNameCI(base, "Decorations") end
                     if not decorations then decorations = podium:FindFirstChild("Decorations") or findDescendantByNameCI(podium, "Decorations") end
-                    
                     local rarityText = getRarityForPodium(podium, decorations)
                     if rarityText then
                         local rlower = string.lower(rarityText)
-                        
                         if string.find(rlower, "secret", 1, true) or string.find(rlower, "og", 1, true) then
                             local numeric, rawText, genInst = nil, nil, nil
-                            
                             if decorations then
                                 local n, t, g = findGenerationInDecorations(decorations)
                                 if n then numeric = n; rawText = t; genInst = g end
@@ -488,7 +489,6 @@ local function findAllSecretAndOG10M()
                                     if genText then numeric = parseSuffixNumber(genText); rawText = genText; genInst = genInstCandidate end
                                 end
                             end
-
                             if numeric and numeric >= MIN_GENERATION then
                                 local basePart = findBasePartForPodium(podium)
                                 table.insert(results, {
@@ -525,15 +525,10 @@ local function cleanGenerationString(raw)
     return s
 end
 
+-- ➤ WEBHOOK: TANPA KALIMAT "SERVER TERPISAH"
 local function sendWebhookList(entries)
-    if not entries or #entries == 0 then
-        warn("sendWebhookList: no entries to send")
-        return false
-    end
-    if not WEBHOOK_URL or WEBHOOK_URL == "" then
-        warn("sendWebhookList: webhook URL is empty")
-        return false
-    end
+    if not entries or #entries == 0 then return false end
+    if not WEBHOOK_URL or WEBHOOK_URL == "" then return false end
 
     table.sort(entries, function(a,b) return (a.numericValue or 0) > (b.numericValue or 0) end)
     local lines = {}
@@ -545,22 +540,17 @@ local function sendWebhookList(entries)
         local rarity = e.rarity or "-"
         local cleanedVal = e.rawText and cleanGenerationString(e.rawText) or (e.rarity or "-")
         if not cleanedVal or cleanedVal == "" then cleanedVal = "-" end
-
         displayName = ciReplace(displayName, "Poison", "Star")
         rarity = ciReplace(rarity, "Poison", "Star")
         cleanedVal = ciReplace(cleanedVal, "Poison", "Star")
-
-        table.insert(lines, string.format("%d) %s â€” %s â€” %s", i, displayName, rarity, cleanedVal))
+        table.insert(lines, string.format("%d) %s ❂ %s ❂ %s", i, displayName, rarity, cleanedVal))
         table.insert(keyParts, tostring(displayName).."|"..tostring(rarity).."|"..tostring(cleanedVal))
         if i >= maxFieldEntries then break end
     end
 
     local listKey = table.concat(keyParts, ";")
     if _G._best_plots_logged == nil then _G._best_plots_logged = {} end
-    if _G._best_plots_logged[listKey] then
-        print("sendWebhookList - list already sent, skipping (dedupe).")
-        return false
-    end
+    if _G._best_plots_logged[listKey] then return false end
     _G._best_plots_logged[listKey] = true
 
     local playersCount = #Players:GetPlayers()
@@ -569,10 +559,9 @@ local function sendWebhookList(entries)
     local joinUrl = "https://chillihub1.github.io/chillihub-joiner/?placeId=109983668079237&gameInstanceId=" .. jobId
     local sentTime = os.date("!%Y-%m-%d %H:%M:%S") .. " UTC"
 
-    local embedDescription = "**Secret/OG 10M+ List**\n\n" .. table.concat(lines, "\n")
     local embed = {
         title = "Niko Store Notifikasi",
-        description = embedDescription,
+        description = "**Secret/OG 10M+ List**\n" .. table.concat(lines, "\n"),
         color = 0xFFD700,
         fields = {
             { name = "Players ", value = playersLine, inline = true },
@@ -585,12 +574,8 @@ local function sendWebhookList(entries)
 
     local content = { embeds = { embed } }
     local okEnc, bodyJson = pcall(function() return HttpService:JSONEncode(content) end)
-    if not okEnc or not bodyJson then
-        warn("sendWebhookList - JSON encode failed")
-        bodyJson = "{}"
-    end
+    if not okEnc then bodyJson = "{}" end
 
-    print("sendWebhookList - sending embed")
     local ok, res = doHttpRequest({
         Url = WEBHOOK_URL,
         Method = "POST",
@@ -599,26 +584,10 @@ local function sendWebhookList(entries)
         Timeout = 10,
     })
 
-    if not ok then
-        warn("sendWebhookList - HTTP error:", res and res.Body or tostring(res))
-        return false
-    end
-
-    local status = res.StatusCode or res.statusCode or res.Status or res.status or (res.Success and 200) or 0
-    local body = res.Body or res.body or ""
-    print(("sendWebhookList - status=%s body=%s"):format(tostring(status), tostring(body)))
-    if tonumber(status) and tonumber(status) >= 200 and tonumber(status) < 300 then
-        print("sendWebhookList - webhook sent successfully.")
-        return true
-    end
-    if res.Success then
-        print("sendWebhookList - HttpService indicated success.")
-        return true
-    end
-    warn("sendWebhookList - failed to send webhook.")
-    return false
+    return ok and (tonumber(res.StatusCode or res.statusCode or 0) >= 200 and tonumber(res.StatusCode or res.statusCode or 0) < 300 or res.Success)
 end
 
+-- ➤ MAIN ROUTINE DENGAN HISTORY SERVER
 local function mainRoutine()
     clearESP()
     local entries = findAllSecretAndOG10M()
@@ -635,8 +604,10 @@ local function mainRoutine()
     end
 
     wait(HOP_DELAY_SECONDS)
-    
-    while true do 
+
+    _G.VisitedJobIds = _G.VisitedJobIds or {}
+
+    while true do
         pcall(function()
             local function fetchPublicServers(placeId, cursor)
                 local url = "https://games.roblox.com/v1/games/" .. tostring(placeId) .. "/servers/Public?sortOrder=Asc&limit=100"
@@ -653,38 +624,49 @@ local function mainRoutine()
             local function chooseServerCandidate(placeId)
                 local pageCursor = nil
                 local triedPages = 0
-                local candidates = {}
+                local preferred = {}
+                local fallback = {}
+
                 while triedPages < MAX_SERVER_PAGES do
                     local data = fetchPublicServers(placeId, pageCursor)
                     if not data then break end
                     local arr = data.data or {}
                     for _, srv in ipairs(arr) do
-                        local id = srv.id or srv.idStr or srv.idString or srv.uuid or srv.guid
-                        if id and tostring(id) ~= tostring(game.JobId) then
-                            table.insert(candidates, { id = tostring(id), playing = tonumber(srv.playing) or 0, maxPlayers = tonumber(srv.maxPlayers) or 0 })
+                        local id = srv.id
+                        if not id then continue end
+                        id = tostring(id)
+                        if id == tostring(game.JobId) or _G.VisitedJobIds[id] then continue end
+
+                        local playing = tonumber(srv.playing) or 0
+                        local maxPlayers = tonumber(srv.maxPlayers) or 0
+                        if playing >= maxPlayers then continue end
+
+                        if playing >= MIN_PLAYERS_TO_PREFER then
+                            table.insert(preferred, id)
+                        else
+                            table.insert(fallback, id)
                         end
                     end
                     pageCursor = data.nextPageCursor
                     if not pageCursor then break end
                     triedPages = triedPages + 1
                 end
+
+                local candidates = #preferred > 0 and preferred or fallback
                 if #candidates == 0 then return nil end
-                local idx = math.random(1, #candidates)
-                return candidates[idx].id
+
+                local chosen = candidates[math.random(1, #candidates)]
+                _G.VisitedJobIds[chosen] = true
+                return chosen
             end
 
             local candidateId = chooseServerCandidate(game.PlaceId)
             if candidateId then
-                if tostring(candidateId) == tostring(game.JobId) then
-                    TeleportService:Teleport(game.PlaceId)
-                else
-                    TeleportService:TeleportToPlaceInstance(game.PlaceId, candidateId)
-                end
+                TeleportService:TeleportToPlaceInstance(game.PlaceId, candidateId)
             else
                 TeleportService:Teleport(game.PlaceId)
             end
         end)
-        
         wait(5)
     end
 end
