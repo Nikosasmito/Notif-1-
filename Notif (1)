@@ -4,10 +4,10 @@ local playerGui = player:WaitForChild("PlayerGui")
 local HttpService = game:GetService("HttpService")
 local TeleportService = game:GetService("TeleportService")
 local workspace = workspace
-local WEBHOOK_URL = "https://discord.com/api/webhooks/1441062150880891010/oXdFqednQHdke74hQtRPmlQ8BQqRs8A3dmL54FxI-4QMJRUIi31ptjqgLeVPlS5uaEs-"
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1443447036929245294/vw9c4hohC7iRkXu5tTi_0HmwmD08cO4i9E5AnKFE4WnQmB_gpiQtHv_kf7_KNoTVZz6n"
 local PLOTS_NAME = "Plots"
 local HOP_DELAY_SECONDS = 5
-local MAX_SERVER_PAGES = 10 -- Aumentado levemente para garantir candidatos
+local MAX_SERVER_PAGES = 999 
 local MAX_PLAYERS_DISPLAY = 8
 local SHOW_ESP = true
 local MIN_GENERATION = 10000000 
@@ -471,7 +471,6 @@ local function findAllSecretAndOG10M()
                         local rlower = string.lower(rarityText)
                         
                         if string.find(rlower, "secret", 1, true) or string.find(rlower, "og", 1, true) then
-                            
                             local numeric, rawText, genInst = nil, nil, nil
                             
                             if decorations then
@@ -551,7 +550,7 @@ local function sendWebhookList(entries)
         rarity = ciReplace(rarity, "Poison", "Star")
         cleanedVal = ciReplace(cleanedVal, "Poison", "Star")
 
-        table.insert(lines, string.format("%d) %s â€? %s â€? %s", i, displayName, rarity, cleanedVal))
+        table.insert(lines, string.format("%d) %s â€” %s â€” %s", i, displayName, rarity, cleanedVal))
         table.insert(keyParts, tostring(displayName).."|"..tostring(rarity).."|"..tostring(cleanedVal))
         if i >= maxFieldEntries then break end
     end
@@ -576,11 +575,11 @@ local function sendWebhookList(entries)
         description = embedDescription,
         color = 0xFFD700,
         fields = {
-            { name = "Players", value = playersLine, inline = true },
+            { name = "Players ", value = playersLine, inline = true },
             { name = "Link Server:", value = string.format("[Join Server](%s)", joinUrl), inline = true },
             { name = "Sent", value = sentTime, inline = false },
         },
-        footer = { text = "Found By Niko Store " },
+        footer = { text = "Found by: Niko Store" },
         timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
     }
 
@@ -636,54 +635,58 @@ local function mainRoutine()
     end
 
     wait(HOP_DELAY_SECONDS)
-    pcall(function()
-        local function fetchPublicServers(placeId, cursor)
-            local url = "https://games.roblox.com/v1/games/" .. tostring(placeId) .. "/servers/Public?sortOrder=Asc&limit=100"
-            if cursor then url = url .. "&cursor=" .. tostring(cursor) end
-            local ok, res = doHttpRequest({ Url = url, Method = "GET", Timeout = 10 })
-            if not ok then return nil end
-            local body = res.Body or res.body or ""
-            if body == "" then return nil end
-            local success, data = pcall(function() return HttpService:JSONDecode(body) end)
-            if not success then return nil end
-            return data
-        end
+    
+    while true do 
+        pcall(function()
+            local function fetchPublicServers(placeId, cursor)
+                local url = "https://games.roblox.com/v1/games/" .. tostring(placeId) .. "/servers/Public?sortOrder=Asc&limit=100"
+                if cursor then url = url .. "&cursor=" .. tostring(cursor) end
+                local ok, res = doHttpRequest({ Url = url, Method = "GET", Timeout = 10 })
+                if not ok then return nil end
+                local body = res.Body or res.body or ""
+                if body == "" then return nil end
+                local success, data = pcall(function() return HttpService:JSONDecode(body) end)
+                if not success then return nil end
+                return data
+            end
 
-        local function chooseServerCandidate(placeId)
-            local pageCursor = nil
-            local triedPages = 0
-            local candidates = {}
-            while triedPages < MAX_SERVER_PAGES do
-                local data = fetchPublicServers(placeId, pageCursor)
-                if not data then break end
-                local arr = data.data or {}
-                for _, srv in ipairs(arr) do
-                    local id = srv.id or srv.idStr or srv.idString or srv.uuid or srv.guid
-                    -- Modificado: remove a verificaÃ§Ã£o (playing < maxPlayers) para entrar atÃ© se lotado
-                    if id and tostring(id) ~= tostring(game.JobId) then
-                        table.insert(candidates, { id = tostring(id), playing = tonumber(srv.playing) or 0, maxPlayers = tonumber(srv.maxPlayers) or 0 })
+            local function chooseServerCandidate(placeId)
+                local pageCursor = nil
+                local triedPages = 0
+                local candidates = {}
+                while triedPages < MAX_SERVER_PAGES do
+                    local data = fetchPublicServers(placeId, pageCursor)
+                    if not data then break end
+                    local arr = data.data or {}
+                    for _, srv in ipairs(arr) do
+                        local id = srv.id or srv.idStr or srv.idString or srv.uuid or srv.guid
+                        if id and tostring(id) ~= tostring(game.JobId) then
+                            table.insert(candidates, { id = tostring(id), playing = tonumber(srv.playing) or 0, maxPlayers = tonumber(srv.maxPlayers) or 0 })
+                        end
                     end
+                    pageCursor = data.nextPageCursor
+                    if not pageCursor then break end
+                    triedPages = triedPages + 1
                 end
-                pageCursor = data.nextPageCursor
-                if not pageCursor then break end
-                triedPages = triedPages + 1
+                if #candidates == 0 then return nil end
+                local idx = math.random(1, #candidates)
+                return candidates[idx].id
             end
-            if #candidates == 0 then return nil end
-            local idx = math.random(1, #candidates)
-            return candidates[idx].id
-        end
 
-        local candidateId = chooseServerCandidate(game.PlaceId)
-        if candidateId then
-            if tostring(candidateId) == tostring(game.JobId) then
-                TeleportService:Teleport(game.PlaceId)
+            local candidateId = chooseServerCandidate(game.PlaceId)
+            if candidateId then
+                if tostring(candidateId) == tostring(game.JobId) then
+                    TeleportService:Teleport(game.PlaceId)
+                else
+                    TeleportService:TeleportToPlaceInstance(game.PlaceId, candidateId)
+                end
             else
-                TeleportService:TeleportToPlaceInstance(game.PlaceId, candidateId)
+                TeleportService:Teleport(game.PlaceId)
             end
-        else
-            TeleportService:Teleport(game.PlaceId)
-        end
-    end)
+        end)
+        
+        wait(5)
+    end
 end
 
 coroutine.wrap(mainRoutine)()
